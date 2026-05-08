@@ -1,0 +1,47 @@
+[package]
+name = "dev-chaos"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+readme = "README.md"
+license = "Apache-2.0"
+
+authors = [
+    "James Gober <me@jamesgober.com>"
+]
+
+description = "Failure injection and recovery testing for Rust. Disk faults, network failures, panics. Part of the dev-* verification suite."
+
+keywords = [
+    "chaos",
+    "failure-injection",
+    "recovery",
+    "verification",
+    "ai-tools"
+]
+
+categories = [
+    "development-tools",
+    "development-tools::testing",
+    "development-tools::debugging"
+]
+
+documentation = "https://docs.rs/dev-chaos"
+repository = "https://github.com/jamesgober/dev-chaos"
+homepage = "https://github.com/jamesgober/dev-chaos"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+dev-report = { version = "0.1", path = "../dev-report" }
+
+[dev-dependencies]
+
+[features]
+default = []
+
+[profile.release]
+opt-level = 3
+lto = "thin"
