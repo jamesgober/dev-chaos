@@ -6,8 +6,9 @@
 
 <p align="center">
     <a href="https://crates.io/crates/dev-chaos"><img alt="crates.io" src="https://img.shields.io/crates/v/dev-chaos.svg"></a>
+    <a href="https://crates.io/crates/dev-chaos"><img alt="downloads" src="https://img.shields.io/crates/d/dev-chaos.svg"></a>
+    <a href="https://github.com/jamesgober/dev-chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jamesgober/dev-chaos/actions/workflows/ci.yml/badge.svg"></a>
     <a href="https://docs.rs/dev-chaos"><img alt="docs.rs" src="https://docs.rs/dev-chaos/badge.svg"></a>
-    <a href="https://github.com/jamesgober/dev-chaos/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
 </p>
 
 <p align="center">
@@ -35,7 +36,14 @@ your recovery logic works.
 
 ```toml
 [dependencies]
-dev-chaos = "0.1"
+dev-chaos = "0.9"
+```
+
+Opt-in features:
+
+```toml
+[dependencies]
+dev-chaos = { version = "0.9", features = ["async-io"] }
 ```
 
 ```rust
@@ -58,26 +66,117 @@ for attempt in 1..=12 {
 }
 
 let final_state_ok = true; // your invariant check
-let check = assert_recovered("my_operation", 3, observed_failures, final_state_ok);
+let _check = assert_recovered("my_operation", 3, observed_failures, final_state_ok);
+```
+
+The returned `CheckResult` carries `chaos` + `recovery` tags and
+numeric `Evidence` for `expected_failures`, `actual_failures`,
+`final_state_ok`.
+
+## IO wrappers
+
+Inject failures into a real `Read`/`Write` without touching the
+system under test:
+
+```rust
+use dev_chaos::{io::ChaosWriter, FailureMode, FailureSchedule};
+use std::io::Write;
+
+let sink: Vec<u8> = Vec::new();
+let schedule = FailureSchedule::on_attempts(&[2], FailureMode::PartialWrite);
+let mut w = ChaosWriter::new(sink, schedule);
+
+w.write_all(b"first").unwrap();        // attempt 1: ok
+let _ = w.write(b"second");             // attempt 2: 1 byte then PartialWrite
+let inner = w.into_inner();
+assert_eq!(inner, b"firsts");
+```
+
+`ChaosFile`, `ChaosReader`, and `ChaosWriter` cover sync IO. With the
+`async-io` feature, `AsyncChaosReader` and `AsyncChaosWriter` cover
+`tokio::io`.
+
+## Crash-restart helpers
+
+Model "process crashed mid-write" without crashing the process:
+
+```rust
+use dev_chaos::crash::CrashPoint;
+use std::io::Write;
+
+let sink: Vec<u8> = Vec::new();
+let mut w = CrashPoint::after_byte(3).wrap(sink);
+let _ = w.write_all(b"abcde");  // truncated at 3 bytes
+let inner = w.into_inner();
+assert_eq!(inner, b"abc");
+```
+
+## Latency injection
+
+Simulate slow but successful operations:
+
+```rust
+use dev_chaos::latency::{LatencyInjector, LatencyProfile};
+use std::time::Duration;
+
+let inj = LatencyInjector::new(LatencyProfile::LinearRamp {
+    start: Duration::from_micros(10),
+    step:  Duration::from_micros(5),
+});
+for attempt in 1..=5 {
+    inj.apply_blocking(attempt);
+    // ... call the operation under test ...
+}
+```
+
+## Seeded random schedules
+
+When you need probabilistic exploration but reproducible results:
+
+```rust
+use dev_chaos::{FailureMode, FailureSchedule};
+
+// Same seed produces the same sequence on every run, on every machine.
+let schedule = FailureSchedule::seeded_random(42, 0.05, FailureMode::Timeout);
+```
+
+## Producer trait
+
+```rust
+use dev_chaos::{assert_recovered, ChaosProducer};
+use dev_report::Producer;
+
+let producer = ChaosProducer::new(
+    || vec![
+        assert_recovered("write_log", 2, 2, true),
+        assert_recovered("rename",    1, 1, true),
+    ],
+    "my-crate",
+    "0.1.0",
+);
+let report = producer.produce();
 ```
 
 ## Design choices
 
 - **Deterministic by default.** Schedules are explicit. You know
   which attempt fails before the test runs.
-- **No probabilistic chaos.** Random failures are useful for
-  exploratory testing but not for repeatable verification. If you
-  need that, layer randomness on top of `FailureSchedule`.
+- **Random failures are opt-in and seeded.** `seeded_random` is
+  reproducible from the seed; no clock, no thread, no real RNG state.
 - **Recovery is the verdict, not the failure.** A test passes when
   the system recovers, not when the failure was injected.
 
-## What's planned
+## Status
 
-- IO wrappers: `ChaosFile`, `ChaosNetwork` that inject failures into
-  real Read/Write/AsyncRead/AsyncWrite types.
-- Process kill simulators with `dev-fixtures` integration.
-- Latency injection (slow but-not-failing operations).
-- Crash-and-restart helpers paired with WAL recovery testing.
+`v0.9.x` is the pre-1.0 stabilization line. APIs are expected to be
+near-final; minor adjustments may still happen ahead of `1.0`.
+Determinism is the contract: the same `(schedule, attempt)` pair
+always produces the same outcome.
+
+## Minimum supported Rust version
+
+`1.75` — pinned in `Cargo.toml` via `rust-version` and verified by
+the MSRV job in CI.
 
 ## License
 

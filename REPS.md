@@ -46,15 +46,63 @@ reproducible from the seed.
 ## 4. Recovery contract
 
 `assert_recovered(name, expected_failures, actual_failures, final_state_ok)`
-returns:
+returns a `CheckResult` tagged `chaos` and `recovery`:
 
 - `Pass` when `actual_failures >= expected_failures` AND `final_state_ok`.
-- `Warn` when `actual_failures < expected_failures` AND `final_state_ok`
-  (under-injection: schedule fired fewer times than expected).
+- `Warn` (Warning) when `actual_failures < expected_failures` AND
+  `final_state_ok` (under-injection: schedule fired fewer times than
+  expected).
 - `Fail` (Critical) when `final_state_ok` is false, regardless of
-  failure counts.
+  failure counts. Additionally tagged `regression`.
 
-## 5. Safety
+### 4.1 Required evidence
+
+Every `CheckResult` from `assert_recovered` MUST carry numeric
+`Evidence` for:
+
+- `expected_failures`
+- `actual_failures`
+- `final_state_ok` (1.0 = true, 0.0 = false)
+
+## 5. IO wrappers
+
+`dev_chaos::io` provides synchronous wrappers around `Read`/`Write`:
+
+- `ChaosReader<R>` and `ChaosWriter<W>` consume a `FailureSchedule`
+  and inject `io::Error` per [`FailureMode`] mapping.
+- `ChaosFile = ChaosWriter<File>` for filesystem writes.
+- On non-failing attempts, behavior MUST be byte-identical to the
+  underlying reader/writer.
+- `PartialWrite` MUST emit exactly one byte (when the caller asked
+  for at least one) before returning the error, so the caller
+  observes a torn-write state.
+
+The `async-io` feature pulls in `tokio::io` and adds
+`AsyncChaosReader<R>` and `AsyncChaosWriter<W>` with the same
+contract.
+
+## 6. Latency injection
+
+`dev_chaos::latency::LatencyInjector` returns deterministic per-attempt
+delays via `LatencyProfile::{Constant, LinearRamp, StepSchedule}`. The
+type is intentionally side-effect-free: `delay_for(attempt)` returns
+the duration; the caller decides when to sleep.
+
+## 7. Crash-restart helpers
+
+`dev_chaos::crash::CrashPoint::after_byte(N)` wraps a `Write` so that
+the underlying writer receives at most `N` bytes cumulatively before
+all subsequent writes return `WriteZero`. This models "process
+crashed mid-write" without actually crashing the process.
+
+## 8. Producer integration
+
+This crate MUST provide `ChaosProducer<F>` implementing
+`dev_report::Producer`. Given a closure returning
+`Vec<CheckResult>`, the producer emits a finalized `Report` with
+`producer = "dev-chaos"`.
+
+## 9. Safety
 
 This crate MUST NOT execute any failure injection that requires
 elevated privileges. Disk-full simulation, kernel-level fault
