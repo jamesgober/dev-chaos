@@ -28,8 +28,11 @@
 //! ## Modules
 //!
 //! - [`io`] — sync IO wrappers (`ChaosReader`, `ChaosWriter`, `ChaosFile`).
-//! - [`latency`] — non-failing slowdowns via `LatencyInjector`.
+//! - [`latency`] — non-failing slowdowns via `LatencyInjector`,
+//!   composable with `FailureSchedule` via `LatencyAndFailure`.
 //! - [`crash`] — write-truncation via `CrashPoint`.
+//! - [`clock`] — deterministic `Clock` for time-skew injection.
+//! - [`memory_pressure`] — `MemoryPressure` guards for memory-bound chaos.
 //! - `async_io` (feature `async-io`) — `tokio::io` equivalents
 //!   (visible in rustdoc when the feature is enabled).
 //!
@@ -50,9 +53,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use dev_report::{CheckResult, Evidence, Producer, Report, Severity};
 
+pub mod clock;
 pub mod crash;
 pub mod io;
 pub mod latency;
+pub mod memory_pressure;
 
 #[cfg(feature = "async-io")]
 #[cfg_attr(docsrs, doc(cfg(feature = "async-io")))]

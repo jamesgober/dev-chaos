@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-10
+
+### Added
+
+- New `clock` module — `Clock`, a deterministic in-process time source for testing time-sensitive code (retries, expiry, TTL). Supports `advance(Duration)` and `skew_by(i64)` for forward and backward time movement. Thread-safe via internal `Arc<AtomicI64>`.
+- New `memory_pressure` module — `MemoryPressure` RAII guard that allocates and holds a configurable byte budget for the duration of its lifetime. Convenience constructors `allocate_kib`, `allocate_mib`, plus `try_allocate` for OOM-path testing.
+- `LatencyInjector::compose_with_schedule(schedule)` returning a `LatencyAndFailure` composer that applies latency *and* checks for scheduled failures in one call.
+- New `LatencyAndFailure` type with `apply_blocking(attempt) -> Result<(), InjectedFailure>` and `delay_for(attempt)` accessors.
+
+[0.9.2]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.9.2
+
 ## [0.9.1] - 2026-05-09
 
 ### Added
@@ -86,5 +97,5 @@
 Name-claim release. IO wrappers, process kill simulators, and
 latency injection land in `0.2.x` and beyond.
 
-[Unreleased]: https://github.com/jamesgober/dev-chaos/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-chaos/compare/v0.9.2...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.1.0

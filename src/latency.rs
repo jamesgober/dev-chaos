@@ -2,8 +2,8 @@
 //!
 //! `LatencyInjector` produces a deterministic delay per attempt
 //! according to a [`LatencyProfile`]. It composes with
-//! [`FailureSchedule`](crate::FailureSchedule): inject latency on
-//! every call, inject failures on a subset.
+//! `FailureSchedule` (see [`LatencyInjector::compose_with_schedule`]):
+//! inject latency on every call, inject failures on a subset.
 
 use std::time::Duration;
 
@@ -83,6 +83,67 @@ impl LatencyInjector {
     /// Equivalent to `std::thread::sleep(self.delay_for(attempt))`.
     pub fn apply_blocking(&self, attempt: usize) {
         std::thread::sleep(self.delay_for(attempt));
+    }
+
+    /// Bind this injector to a [`FailureSchedule`](crate::FailureSchedule)
+    /// so a single call applies latency *and* checks for failure injection.
+    ///
+    /// Returns a [`LatencyAndFailure`] composer:
+    /// - On every attempt, the latency is applied (sync sleep).
+    /// - On scheduled-failure attempts, the call returns
+    ///   `Err(InjectedFailure)` after the latency has been applied
+    ///   (so the test observes both the slowdown *and* the failure).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use dev_chaos::{
+    ///     latency::{LatencyInjector, LatencyProfile},
+    ///     FailureMode, FailureSchedule,
+    /// };
+    /// use std::time::Duration;
+    ///
+    /// let inj = LatencyInjector::new(LatencyProfile::Constant(Duration::ZERO));
+    /// let schedule = FailureSchedule::on_attempts(&[2], FailureMode::Timeout);
+    /// let composed = inj.compose_with_schedule(schedule);
+    ///
+    /// assert!(composed.apply_blocking(1).is_ok());
+    /// assert!(composed.apply_blocking(2).is_err());
+    /// ```
+    pub fn compose_with_schedule(self, schedule: crate::FailureSchedule) -> LatencyAndFailure {
+        LatencyAndFailure {
+            injector: self,
+            schedule,
+        }
+    }
+}
+
+/// A latency injector composed with a [`FailureSchedule`](crate::FailureSchedule).
+///
+/// Built via [`LatencyInjector::compose_with_schedule`]. Each
+/// `apply_blocking` call sleeps for the latency profile's delay and
+/// then either returns `Ok(())` or `Err(InjectedFailure)` based on
+/// the schedule.
+pub struct LatencyAndFailure {
+    injector: LatencyInjector,
+    schedule: crate::FailureSchedule,
+}
+
+impl LatencyAndFailure {
+    /// Apply the latency for `attempt`, then check the schedule.
+    ///
+    /// Returns `Ok(())` if the schedule does not fire, or
+    /// `Err(InjectedFailure)` if it does. The latency is applied in
+    /// either case — the failure is appended *after* the slowdown.
+    pub fn apply_blocking(&self, attempt: usize) -> Result<(), crate::InjectedFailure> {
+        self.injector.apply_blocking(attempt);
+        self.schedule.maybe_fail(attempt)
+    }
+
+    /// Compute the delay for `attempt` without sleeping or consuming
+    /// schedule attempts. Useful for diagnostics.
+    pub fn delay_for(&self, attempt: usize) -> Duration {
+        self.injector.delay_for(attempt)
     }
 }
 
