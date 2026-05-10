@@ -30,7 +30,8 @@
 //! - [`io`] — sync IO wrappers (`ChaosReader`, `ChaosWriter`, `ChaosFile`).
 //! - [`latency`] — non-failing slowdowns via `LatencyInjector`.
 //! - [`crash`] — write-truncation via `CrashPoint`.
-//! - [`async_io`] (feature `async-io`) — `tokio::io` equivalents.
+//! - `async_io` (feature `async-io`) — `tokio::io` equivalents
+//!   (visible in rustdoc when the feature is enabled).
 //!
 //! ## Determinism
 //!
@@ -161,6 +162,9 @@ pub struct FailureSchedule {
     inner: ScheduleKind,
     mode: FailureMode,
     invocations: AtomicUsize,
+    failures: AtomicUsize,
+    /// `None` = unbounded; `Some(n)` = stop firing after `n` failures.
+    failure_limit: Option<usize>,
 }
 
 enum ScheduleKind {
@@ -186,6 +190,8 @@ impl FailureSchedule {
             inner: ScheduleKind::Explicit(attempts.iter().copied().collect()),
             mode,
             invocations: AtomicUsize::new(0),
+            failures: AtomicUsize::new(0),
+            failure_limit: None,
         }
     }
 
@@ -205,6 +211,8 @@ impl FailureSchedule {
             inner: ScheduleKind::EveryN(n),
             mode,
             invocations: AtomicUsize::new(0),
+            failures: AtomicUsize::new(0),
+            failure_limit: None,
         }
     }
 
@@ -241,22 +249,81 @@ impl FailureSchedule {
             },
             mode,
             invocations: AtomicUsize::new(0),
+            failures: AtomicUsize::new(0),
+            failure_limit: None,
         }
+    }
+
+    /// Cap the total number of failures this schedule will emit.
+    ///
+    /// After `n` failures have been emitted via [`maybe_fail`], the
+    /// schedule stops firing — every subsequent call returns `Ok(())`,
+    /// regardless of attempt number.
+    ///
+    /// Useful for bounded chaos: you want a few failures to verify
+    /// recovery, not an indefinite stream.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use dev_chaos::{FailureMode, FailureSchedule};
+    ///
+    /// // Fail every attempt, but stop after 3.
+    /// let s = FailureSchedule::every_n(1, FailureMode::IoError).limit(3);
+    /// let mut failures = 0;
+    /// for attempt in 1..=20 {
+    ///     if s.maybe_fail(attempt).is_err() {
+    ///         failures += 1;
+    ///     }
+    /// }
+    /// assert_eq!(failures, 3);
+    /// ```
+    ///
+    /// [`maybe_fail`]: Self::maybe_fail
+    pub fn limit(mut self, n: usize) -> Self {
+        self.failure_limit = Some(n);
+        self
     }
 
     /// Check whether the given attempt should fail.
     ///
     /// Returns `Ok(())` if the operation should proceed, or
     /// `Err(InjectedFailure)` if the schedule fires on this attempt.
+    ///
+    /// If a [`limit`](Self::limit) has been applied and the failure
+    /// count has reached it, this returns `Ok(())` regardless of
+    /// whether the schedule would otherwise fire.
     pub fn maybe_fail(&self, attempt: usize) -> Result<(), InjectedFailure> {
         self.invocations.fetch_add(1, Ordering::Relaxed);
-        if self.fires(attempt) {
-            Err(InjectedFailure {
-                mode: self.mode,
-                attempt,
-            })
+        if !self.fires(attempt) {
+            return Ok(());
+        }
+        if let Some(limit) = self.failure_limit {
+            // fetch_update would be cleanest, but a fetch_add + check
+            // is sufficient: we accept that under contention we may
+            // emit at most `limit + (concurrency - 1)` failures, which
+            // is documented and acceptable for a fixture.
+            let prior = self.failures.fetch_add(1, Ordering::Relaxed);
+            if prior >= limit {
+                return Ok(());
+            }
         } else {
-            Ok(())
+            self.failures.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(InjectedFailure {
+            mode: self.mode,
+            attempt,
+        })
+    }
+
+    /// Total failures emitted by this schedule so far.
+    pub fn failure_count(&self) -> usize {
+        // When a limit is in effect, internal counter may exceed
+        // the limit by one due to fetch_add ordering; clamp on read.
+        let raw = self.failures.load(Ordering::Relaxed);
+        match self.failure_limit {
+            Some(limit) => raw.min(limit),
+            None => raw,
         }
     }
 
@@ -444,6 +511,49 @@ mod tests {
         assert!(s.maybe_fail(9).is_err());
         // Beyond 1024-now-arbitrary because we use modulo.
         assert!(s.maybe_fail(3_000).is_err());
+    }
+
+    #[test]
+    fn limit_caps_total_failures() {
+        let s = FailureSchedule::every_n(1, FailureMode::IoError).limit(3);
+        let mut failures = 0;
+        for attempt in 1..=20 {
+            if s.maybe_fail(attempt).is_err() {
+                failures += 1;
+            }
+        }
+        assert_eq!(failures, 3);
+        assert_eq!(s.failure_count(), 3);
+    }
+
+    #[test]
+    fn limit_zero_disables_failures() {
+        let s = FailureSchedule::every_n(1, FailureMode::IoError).limit(0);
+        for attempt in 1..=10 {
+            assert!(s.maybe_fail(attempt).is_ok());
+        }
+        assert_eq!(s.failure_count(), 0);
+    }
+
+    #[test]
+    fn unlimited_schedule_still_increments_failure_count() {
+        let s = FailureSchedule::every_n(1, FailureMode::IoError);
+        for attempt in 1..=5 {
+            let _ = s.maybe_fail(attempt);
+        }
+        assert_eq!(s.failure_count(), 5);
+    }
+
+    #[test]
+    fn limit_works_with_seeded_random() {
+        let s = FailureSchedule::seeded_random(42, 1.0, FailureMode::IoError).limit(2);
+        let mut failures = 0;
+        for attempt in 1..=20 {
+            if s.maybe_fail(attempt).is_err() {
+                failures += 1;
+            }
+        }
+        assert_eq!(failures, 2);
     }
 
     #[test]

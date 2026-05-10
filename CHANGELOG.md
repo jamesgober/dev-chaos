@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-09
+
+### Added
+
+- `FailureSchedule::limit(n)` builder caps the total number of failures the schedule will emit. After `n` failures, every subsequent `maybe_fail` returns `Ok(())`. Composes with `on_attempts`, `every_n`, and `seeded_random`.
+- `FailureSchedule::failure_count()` accessor reports the total failures emitted so far (clamped to the configured limit when one is set).
+
+### Fixed
+
+- Broken intra-doc link `[`async_io`]` in the crate-level docstring would warn under `cargo doc` when the `async-io` feature is disabled. The link is now a plain code span.
+
+[0.9.1]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.9.1
+
 ## [0.9.0] - 2026-05-08
 
 ### Added
@@ -73,5 +86,5 @@
 Name-claim release. IO wrappers, process kill simulators, and
 latency injection land in `0.2.x` and beyond.
 
-[Unreleased]: https://github.com/jamesgober/dev-chaos/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-chaos/compare/v0.9.1...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.1.0
