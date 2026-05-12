@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-05-12
+
+Documentation and SEO pass. No code changes.
+
+### Changed
+
+- README header standardized to match the collection-wide template: Rust logo image, MSRV badge between CI and docs.rs, copyright block at bottom.
+- Subtitle now reads `FAULT INJECTION & RECOVERY TESTING FOR RUST` (was `FAILURE INJECTION FOR RUST`). Recovery testing is the actual verdict; making it visible up front.
+- Tagline rewritten to lead with the developer outcome (inject, verify recovery).
+- `## The dev-* collection` section added with the full 14-crate map.
+- `Cargo.toml` description rewritten: lists fault types (disk, network, latency, crash points, partial writes).
+- `Cargo.toml` keywords retuned: dropped `verification` and `ai-tools`, added `fault-injection` and `testing` for crates.io search.
+
+### Added
+
+- "Part of the `dev-*` verification collection" block on the README, under the intro, linking the umbrella `dev-tools` crate.
+
+[0.9.4]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.9.4
+
 ## [0.9.3] - 2026-05-12
 
 ### Added

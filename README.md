@@ -1,20 +1,30 @@
 <h1 align="center">
+    <img width="99" alt="Rust logo" src="https://raw.githubusercontent.com/jamesgober/rust-collection/72baabd71f00e14aa9184efcb16fa3deddda3a0a/assets/rust-logo.svg">
+    <br>
     <strong>dev-chaos</strong>
     <br>
-    <sup><sub>FAILURE INJECTION FOR RUST</sub></sup>
+    <sup><sub>FAULT INJECTION &amp; RECOVERY TESTING FOR RUST</sub></sup>
 </h1>
-
 <p align="center">
     <a href="https://crates.io/crates/dev-chaos"><img alt="crates.io" src="https://img.shields.io/crates/v/dev-chaos.svg"></a>
     <a href="https://crates.io/crates/dev-chaos"><img alt="downloads" src="https://img.shields.io/crates/d/dev-chaos.svg"></a>
     <a href="https://github.com/jamesgober/dev-chaos/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/jamesgober/dev-chaos/actions/workflows/ci.yml/badge.svg"></a>
+    <img alt="MSRV" src="https://img.shields.io/badge/MSRV-1.85%2B-blue.svg?style=flat-square" title="Rust Version">
     <a href="https://docs.rs/dev-chaos"><img alt="docs.rs" src="https://docs.rs/dev-chaos/badge.svg"></a>
 </p>
 
 <p align="center">
-    Disk faults, network failures, panics. Recovery validation.<br>
-    Part of the <code>dev-*</code> verification suite.
+    <strong>Inject failures, latency, and crash points — verify that recovery actually works.</strong> Disk faults, network drops, panics, partial writes — all from a controlled test.
 </p>
+
+<br>
+
+<div align="center">
+    <strong>Part of the <a href="https://crates.io/crates/dev-tools"><code>dev-*</code></a> verification collection.</strong><br>
+    <sub>Also available as the <code>chaos</code> feature of the <a href="https://crates.io/crates/dev-tools"><code>dev-tools</code></a> umbrella crate &mdash; one dependency, every verification layer.</sub>
+</div>
+
+<br>
 
 ---
 
@@ -36,14 +46,14 @@ your recovery logic works.
 
 ```toml
 [dependencies]
-dev-chaos = "0.9.3"
+dev-chaos = "0.9.4"
 ```
 
 Opt-in features:
 
 ```toml
 [dependencies]
-dev-chaos = { version = "0.9.3", features = ["async-io"] }
+dev-chaos = { version = "0.9.4", features = ["async-io"] }
 ```
 
 ```rust
@@ -166,6 +176,26 @@ let report = producer.produce();
 - **Recovery is the verdict, not the failure.** A test passes when
   the system recovers, not when the failure was injected.
 
+## The `dev-*` collection
+
+`dev-chaos` ships independently and is also re-exported by the
+[`dev-tools`](https://crates.io/crates/dev-tools) umbrella crate as
+the `chaos` feature. Sister crates cover the other verification
+dimensions:
+
+- [`dev-report`](https://crates.io/crates/dev-report) &mdash; report schema everything emits
+- [`dev-fixtures`](https://crates.io/crates/dev-fixtures) &mdash; deterministic test fixtures
+- [`dev-bench`](https://crates.io/crates/dev-bench) &mdash; performance and regression detection
+- [`dev-async`](https://crates.io/crates/dev-async) &mdash; async runtime verification
+- [`dev-stress`](https://crates.io/crates/dev-stress) &mdash; stress and soak workloads
+- [`dev-coverage`](https://crates.io/crates/dev-coverage) &mdash; code coverage with regression gates
+- [`dev-security`](https://crates.io/crates/dev-security) &mdash; CVE / license / banned-crate audit
+- [`dev-deps`](https://crates.io/crates/dev-deps) &mdash; unused / outdated dep detection
+- [`dev-ci`](https://crates.io/crates/dev-ci) &mdash; GitHub Actions workflow generator
+- [`dev-fuzz`](https://crates.io/crates/dev-fuzz) &mdash; fuzz testing workflow
+- [`dev-flaky`](https://crates.io/crates/dev-flaky) &mdash; flaky-test detection
+- [`dev-mutate`](https://crates.io/crates/dev-mutate) &mdash; mutation testing
+
 ## Status
 
 `v0.9.x` is the pre-1.0 stabilization line. APIs are expected to be
@@ -183,3 +213,14 @@ shared MSRV after sibling crates picked up dependencies that require
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+
+
+
+<!-- COPYRIGHT
+---------------------------------->
+<div align="center">
+    <br>
+    <h2></h2>
+    Copyright &copy; 2026 James Gober.
+</div>
