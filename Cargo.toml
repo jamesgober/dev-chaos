@@ -1,6 +1,6 @@
 [package]
 name = "dev-chaos"
-version = "0.9.3"
+version = "0.9.4"
 edition = "2021"
 rust-version = "1.85"
 readme = "README.md"
@@ -10,14 +10,14 @@ authors = [
     "James Gober <me@jamesgober.com>"
 ]
 
-description = "Failure injection and recovery testing for Rust. Disk faults, network failures, panics. Part of the dev-* verification suite."
+description = "Fault injection and recovery testing for Rust. Disk faults, network drops, latency injection, deterministic crash points, partial writes. Part of the dev-* verification collection."
 
 keywords = [
     "chaos",
     "failure-injection",
     "recovery",
-    "verification",
-    "ai-tools"
+    "fault-injection",
+    "testing"
 ]
 
 categories = [
