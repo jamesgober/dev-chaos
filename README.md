@@ -36,14 +36,14 @@ your recovery logic works.
 
 ```toml
 [dependencies]
-dev-chaos = "0.9.2"
+dev-chaos = "0.9.3"
 ```
 
 Opt-in features:
 
 ```toml
 [dependencies]
-dev-chaos = { version = "0.9.2", features = ["async-io"] }
+dev-chaos = { version = "0.9.3", features = ["async-io"] }
 ```
 
 ```rust

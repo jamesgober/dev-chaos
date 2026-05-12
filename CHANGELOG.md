@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-05-12
+
 ### Added
 
 - `examples/chaos_schedule.rs` — runnable demonstration of `FailureSchedule::on_attempts` showing the deterministic firing pattern across a 12-attempt loop.
@@ -9,6 +11,8 @@
 ### Changed
 
 - CI: `actions/checkout` bumped from `v4` to `v5` (removes Node 20 deprecation warnings).
+
+[0.9.3]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.9.3
 
 ## [0.9.2] - 2026-05-10
 
@@ -105,5 +109,5 @@
 Name-claim release. IO wrappers, process kill simulators, and
 latency injection land in `0.2.x` and beyond.
 
-[Unreleased]: https://github.com/jamesgober/dev-chaos/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/jamesgober/dev-chaos/compare/v0.9.3...HEAD
 [0.1.0]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.1.0
