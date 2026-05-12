@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `examples/chaos_schedule.rs` — runnable demonstration of `FailureSchedule::on_attempts` showing the deterministic firing pattern across a 12-attempt loop.
+
+### Changed
+
+- CI: `actions/checkout` bumped from `v4` to `v5` (removes Node 20 deprecation warnings).
+
 ## [0.9.2] - 2026-05-10
 
 ### Added
