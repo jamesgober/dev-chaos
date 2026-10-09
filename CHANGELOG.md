@@ -2,24 +2,59 @@
 
 ## [Unreleased]
 
-## [0.9.5] - 2026-05-18
+## [0.9.5] - 2026-10-09
 
-MSRV rollback to Rust 1.75. Backed off from 1.85 after `dev-fixtures`
-swapped `tempfile` → `mod-tempdir` 1.0 in its own 0.9.5 release,
-eliminating the `getrandom 0.4.2 → edition2024` chain that was the
-sole reason the dev-* collection sat at 1.85. No code changes here;
-this crate's own runtime dependencies have always been
-1.75-compatible.
+Determinism and overflow fixes from a review pass, plus the MSRV
+rollback to Rust 1.75. The rollback follows `dev-fixtures` 0.9.5
+swapping `tempfile` for `mod-tempdir` 1.0, which removed the
+`getrandom 0.4.2 -> edition2024` chain that held the dev-* collection
+at 1.85.
+
+### Added
+
+- `AsyncChaosReader::into_inner` and `AsyncChaosWriter::into_inner`.
+- `VERSION` constant with the crate version as compiled, so tools that
+  bundle this crate can report what is actually linked.
+
+### Fixed
+
+- The async wrappers (`async-io` feature) counted every poll as an
+  attempt, including polls that returned `Pending`, so which operation
+  failed depended on how often the runtime polled. That broke the
+  crate's determinism contract. Only completed operations count now.
+- The async writer ignored `FailureMode::PartialWrite`. It now emits
+  the same one-byte torn write as the sync writer (REPS section 5).
+- `MemoryPressure::allocate` did not make its memory resident: the OS
+  hands out zeroed pages lazily, so a 512 MiB guard added nothing to
+  RSS. Every page is now written once. `try_allocate` does the same on
+  success. Allocating is slower as a result (about 55 ms for 512 MiB),
+  which is the point of the call.
+- `LinearRamp` panicked with "overflow when adding durations" for large
+  attempt counts, and attempts above `u32::MAX` wrapped back to small
+  delays. It now saturates and stays linear.
+- `Clock::advance` and `skew_by` wrapped on overflow, so
+  `advance(Duration::MAX)` moved the clock backwards. Both saturate now.
+- An empty write to a `CrashWriter` before the crash point failed with
+  "crash point reached"; it now returns `Ok(0)`.
 
 ### Changed
 
-- `rust-version` lowered from `1.85` to `1.75` in `Cargo.toml`.
-- MSRV badge in README updated from `1.85+` to `1.75+`.
+- `rust-version` lowered from `1.85` to `1.75`. CI's MSRV job now
+  builds on 1.75 against an MSRV-compatible lockfile; it was still
+  pinned to 1.85.
 
-### Notes
+### Documentation
 
-- No code change. No API change. No new dependencies.
-- Library, examples, and tests all build clean on Rust 1.75 (verified).
+- `FailureMode::Corruption` said the wrappers return success with
+  corrupted bytes; they return an `InvalidData` error, as REPS
+  specifies.
+- The `limit` comment wrongly said it can over-fire under contention.
+- `seeded_random` resolves probability to 0.001; this is now
+  documented. Seeded sequences are unchanged from 0.9.4 and pinned by
+  a test.
+- The async and `ChaosFile` doctests now compile and run.
+- README: the tagline no longer promises panic injection, and the
+  version snippet and MSRV section are corrected.
 
 [0.9.5]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.9.5
 

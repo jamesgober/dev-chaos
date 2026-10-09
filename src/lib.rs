@@ -48,6 +48,18 @@
 #![warn(missing_docs)]
 #![warn(rust_2018_idioms)]
 
+/// Version of this crate as compiled, taken from its `Cargo.toml`.
+///
+/// Lets tools that bundle this crate, such as the `dev` CLI in
+/// `dev-tools`, report the version that is actually linked.
+///
+/// # Example
+///
+/// ```
+/// assert!(!dev_chaos::VERSION.is_empty());
+/// ```
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -81,7 +93,10 @@ pub enum FailureMode {
     ConnectionReset,
     /// Operation timeout.
     Timeout,
-    /// Corrupted data: returns success but with corrupted bytes.
+    /// Corrupted data. Surfaces as an error of kind
+    /// `ErrorKind::InvalidData`, as if a checksum or decode step had
+    /// rejected the bytes. The IO wrappers return this error; they do
+    /// not alter the bytes passed through.
     Corruption,
     /// Permission denied.
     PermissionDenied,
@@ -227,7 +242,9 @@ impl FailureSchedule {
     /// and fails when that value is below `probability * 1000`. The
     /// schedule is fully reproducible from the seed.
     ///
-    /// `probability` is clamped to `[0.0, 1.0]`.
+    /// `probability` is clamped to `[0.0, 1.0]` and rounded to the
+    /// nearest 0.001 (so `0.0004` never fires and `0.0005` fires about
+    /// once per 1000 attempts). A NaN probability never fires.
     ///
     /// **This is the only non-explicit schedule.** Even so, it is
     /// strictly reproducible; no real RNG state, no clock, no thread.
@@ -304,10 +321,11 @@ impl FailureSchedule {
             return Ok(());
         }
         if let Some(limit) = self.failure_limit {
-            // fetch_update would be cleanest, but a fetch_add + check
-            // is sufficient: we accept that under contention we may
-            // emit at most `limit + (concurrency - 1)` failures, which
-            // is documented and acceptable for a fixture.
+            // Every caller gets a distinct `prior` from fetch_add, so
+            // exactly `limit` callers see `prior < limit`: never more
+            // than `limit` failures, even under contention. The raw
+            // counter keeps counting past the limit; `failure_count`
+            // clamps it.
             let prior = self.failures.fetch_add(1, Ordering::Relaxed);
             if prior >= limit {
                 return Ok(());
@@ -323,8 +341,8 @@ impl FailureSchedule {
 
     /// Total failures emitted by this schedule so far.
     pub fn failure_count(&self) -> usize {
-        // When a limit is in effect, internal counter may exceed
-        // the limit by one due to fetch_add ordering; clamp on read.
+        // With a limit, the internal counter also counts attempts that
+        // would have fired after the limit was reached; clamp on read.
         let raw = self.failures.load(Ordering::Relaxed);
         match self.failure_limit {
             Some(limit) => raw.min(limit),
@@ -559,6 +577,55 @@ mod tests {
             }
         }
         assert_eq!(failures, 2);
+    }
+
+    #[test]
+    fn limit_holds_exactly_under_contention() {
+        let s = std::sync::Arc::new(FailureSchedule::every_n(1, FailureMode::IoError).limit(5));
+        let fired = std::sync::Arc::new(AtomicUsize::new(0));
+        let workers: Vec<_> = (0..8)
+            .map(|t| {
+                let s = s.clone();
+                let fired = fired.clone();
+                std::thread::spawn(move || {
+                    for i in 1..=1_000 {
+                        if s.maybe_fail(t * 1_000 + i).is_err() {
+                            fired.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        assert_eq!(fired.load(Ordering::Relaxed), 5);
+        assert_eq!(s.failure_count(), 5);
+        assert_eq!(s.invocation_count(), 8_000);
+    }
+
+    #[test]
+    fn seeded_random_sequence_is_pinned() {
+        // Pins the exact outcome for a known seed, so any change to the
+        // hash (which would silently change every user's seeded run) is
+        // caught here.
+        let s = FailureSchedule::seeded_random(42, 0.25, FailureMode::IoError);
+        let fired: Vec<usize> = (1..=40).filter(|&a| s.fires(a)).collect();
+        assert_eq!(fired, PINNED_SEED_42_P25);
+    }
+
+    // Recorded from the 0.9.4 implementation.
+    const PINNED_SEED_42_P25: &[usize] = &[6, 9, 11, 16, 19, 20, 30, 32, 33, 34, 40];
+
+    #[test]
+    fn seeded_random_rounds_probability_to_thousandths() {
+        let never = FailureSchedule::seeded_random(1, 0.0004, FailureMode::IoError);
+        assert!((1..=10_000).all(|a| !never.fires(a)));
+        let nan = FailureSchedule::seeded_random(1, f64::NAN, FailureMode::IoError);
+        assert!((1..=10_000).all(|a| !nan.fires(a)));
+        let rare = FailureSchedule::seeded_random(1, 0.0005, FailureMode::IoError);
+        let n = (1..=100_000).filter(|&a| rare.fires(a)).count();
+        assert!((50..=150).contains(&n), "fired {n} times in 100k");
     }
 
     #[test]

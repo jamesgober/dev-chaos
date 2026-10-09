@@ -14,7 +14,8 @@ use std::time::Duration;
 pub enum LatencyProfile {
     /// Constant delay on every attempt.
     Constant(Duration),
-    /// Linear ramp: `start + (attempt - 1) * step`.
+    /// Linear ramp: `start + (attempt - 1) * step`, saturating at
+    /// `Duration::MAX` instead of overflowing.
     LinearRamp {
         /// Delay applied to attempt 1.
         start: Duration,
@@ -27,6 +28,28 @@ pub enum LatencyProfile {
     /// by `attempt_threshold`. Attempts beyond the last threshold use
     /// the final entry's `delay`.
     StepSchedule(Vec<(usize, Duration)>),
+}
+
+/// `start + n * step` in exact u128 nanoseconds, clamped to
+/// `Duration::MAX`. Only reached for very large attempts or delays, so
+/// it is kept out of line.
+#[cold]
+#[inline(never)]
+fn linear_ramp_wide(start: Duration, step: Duration, n: usize) -> Duration {
+    let ns = step
+        .as_nanos()
+        .saturating_mul(n as u128)
+        .saturating_add(start.as_nanos());
+    duration_from_nanos_saturating(ns)
+}
+
+/// `Duration` from a nanosecond count, clamped to `Duration::MAX`.
+fn duration_from_nanos_saturating(ns: u128) -> Duration {
+    const NANOS_PER_SEC: u128 = 1_000_000_000;
+    match u64::try_from(ns / NANOS_PER_SEC) {
+        Ok(secs) => Duration::new(secs, (ns % NANOS_PER_SEC) as u32),
+        Err(_) => Duration::MAX,
+    }
 }
 
 /// Computes per-attempt delays from a [`LatencyProfile`].
@@ -61,8 +84,19 @@ impl LatencyInjector {
         match &self.profile {
             LatencyProfile::Constant(d) => *d,
             LatencyProfile::LinearRamp { start, step } => {
-                let n = attempt.saturating_sub(1) as u32;
-                *start + step.saturating_mul(n)
+                // The old `as u32` cast wrapped attempts above u32::MAX
+                // back to small delays, and `start + ...` panicked on
+                // overflow.
+                let n = attempt.saturating_sub(1);
+                // Fast path: plain Duration math when nothing overflows.
+                match u32::try_from(n)
+                    .ok()
+                    .and_then(|n| step.checked_mul(n))
+                    .and_then(|d| start.checked_add(d))
+                {
+                    Some(d) => d,
+                    None => linear_ramp_wide(*start, *step, n),
+                }
             }
             LatencyProfile::StepSchedule(boundaries) => {
                 if boundaries.is_empty() {
@@ -168,6 +202,57 @@ mod tests {
         assert_eq!(inj.delay_for(1), Duration::from_micros(10));
         assert_eq!(inj.delay_for(2), Duration::from_micros(15));
         assert_eq!(inj.delay_for(5), Duration::from_micros(30));
+    }
+
+    #[test]
+    fn linear_ramp_saturates_instead_of_panicking() {
+        // start + step * n used to panic with "overflow when adding
+        // durations" once the product came close to Duration::MAX.
+        let inj = LatencyInjector::new(LatencyProfile::LinearRamp {
+            start: Duration::from_secs(1),
+            step: Duration::MAX,
+        });
+        assert_eq!(inj.delay_for(1), Duration::from_secs(1));
+        assert_eq!(inj.delay_for(2), Duration::MAX);
+        let inj = LatencyInjector::new(LatencyProfile::LinearRamp {
+            start: Duration::MAX,
+            step: Duration::from_secs(1),
+        });
+        assert_eq!(inj.delay_for(3), Duration::MAX);
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn linear_ramp_stays_linear_past_u32_attempts() {
+        // `(attempt - 1) as u32` wrapped at 2^32, so attempt 2^32 + 1
+        // got the same delay as attempt 1.
+        let inj = LatencyInjector::new(LatencyProfile::LinearRamp {
+            start: Duration::from_nanos(7),
+            step: Duration::from_nanos(1),
+        });
+        let attempt = (u32::MAX as u64 + 2) as usize;
+        assert_eq!(
+            inj.delay_for(attempt),
+            Duration::from_nanos(7 + u32::MAX as u64 + 1)
+        );
+        assert_eq!(
+            inj.delay_for(usize::MAX),
+            Duration::from_nanos(u64::MAX - 1) + Duration::from_nanos(7)
+        );
+    }
+
+    #[test]
+    fn nanos_conversion_saturates() {
+        assert_eq!(duration_from_nanos_saturating(0), Duration::ZERO);
+        assert_eq!(
+            duration_from_nanos_saturating(1_500_000_000),
+            Duration::from_millis(1_500)
+        );
+        assert_eq!(
+            duration_from_nanos_saturating(Duration::MAX.as_nanos()),
+            Duration::MAX
+        );
+        assert_eq!(duration_from_nanos_saturating(u128::MAX), Duration::MAX);
     }
 
     #[test]

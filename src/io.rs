@@ -146,14 +146,16 @@ impl<W: Write> Write for ChaosWriter<W> {
 ///
 /// Open a real file and wrap it for failure injection on writes.
 ///
-/// # Example (ignored: requires a real filesystem path)
+/// # Example
 ///
-/// ```ignore
+/// ```
 /// use dev_chaos::{io::ChaosFile, FailureMode, FailureSchedule};
 /// use std::io::Write;
 ///
+/// # let dir = tempfile::tempdir().unwrap();
+/// # let path = dir.path().join("x.log");
 /// let schedule = FailureSchedule::on_attempts(&[3], FailureMode::PartialWrite);
-/// let mut f = ChaosFile::create("/tmp/x.log", schedule).unwrap();
+/// let mut f = ChaosFile::create(&path, schedule).unwrap();
 /// f.write_all(b"data").unwrap();
 /// ```
 pub type ChaosFile = ChaosWriter<std::fs::File>;

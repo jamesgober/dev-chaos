@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-    <strong>Inject failures, latency, and crash points — verify that recovery actually works.</strong> Disk faults, network drops, panics, partial writes — all from a controlled test.
+    <strong>Inject failures, latency, and crash points — verify that recovery actually works.</strong> Disk faults, network drops, partial writes and crash points, all from a controlled test.
 </p>
 
 <br>
@@ -53,7 +53,7 @@ Opt-in features:
 
 ```toml
 [dependencies]
-dev-chaos = { version = "0.9.4", features = ["async-io"] }
+dev-chaos = { version = "0.9.5", features = ["async-io"] }
 ```
 
 ```rust
@@ -205,10 +205,8 @@ always produces the same outcome.
 
 ## Minimum supported Rust version
 
-`1.85` — pinned in `Cargo.toml` via `rust-version` and verified by
-the MSRV job in CI. (Bumped from 1.75 to align with the suite's
-shared MSRV after sibling crates picked up dependencies that require
-`edition2024`.)
+`1.75`, pinned in `Cargo.toml` via `rust-version` and verified by the
+MSRV job in CI.
 
 ## License
 

@@ -48,13 +48,19 @@ pub struct MemoryPressure {
 impl MemoryPressure {
     /// Allocate and hold `size_bytes` of zeroed memory.
     ///
-    /// Always succeeds for sizes the allocator can satisfy. Returns
-    /// the guard; drop it to release the memory.
+    /// Every page of the allocation is written once, so the memory is
+    /// resident (counted in RSS / the working set) while the guard
+    /// lives, not just reserved address space.
     ///
-    /// For testing OOM / allocation-failure paths specifically, see
-    /// [`MemoryPressure::try_allocate`].
+    /// Returns the guard; drop it to release the memory. Like any `Vec`
+    /// allocation, this aborts the process if the allocator cannot
+    /// satisfy the request. For testing OOM / allocation-failure paths
+    /// specifically, see [`MemoryPressure::try_allocate`].
     pub fn allocate(size_bytes: usize) -> Self {
-        let bytes = vec![0u8; size_bytes];
+        // `vec![0; n]` gets zeroed pages from the OS lazily: before the
+        // pages were touched, a 512 MiB guard added nothing to RSS.
+        let mut bytes = vec![0u8; size_bytes];
+        touch_pages(&mut bytes);
         Self {
             _bytes: bytes,
             size_bytes,
@@ -67,10 +73,14 @@ impl MemoryPressure {
     /// This catches `try_reserve_exact` errors. For genuinely OOM
     /// scenarios on most platforms the kernel may kill the process
     /// before this returns; honest behavior is platform-specific.
+    ///
+    /// On success the memory is resident, as with
+    /// [`allocate`](Self::allocate).
     pub fn try_allocate(size_bytes: usize) -> Result<Self, std::collections::TryReserveError> {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.try_reserve_exact(size_bytes)?;
         bytes.resize(size_bytes, 0);
+        touch_pages(&mut bytes);
         Ok(Self {
             _bytes: bytes,
             size_bytes,
@@ -90,6 +100,25 @@ impl MemoryPressure {
     /// Convenience: allocate `mib` MiB.
     pub fn allocate_mib(mib: usize) -> Self {
         Self::allocate(mib.saturating_mul(1024 * 1024))
+    }
+}
+
+/// Write one byte in every 4 KiB of `bytes` so the OS backs each page
+/// with real memory. 4 KiB is the smallest common page size, so this
+/// also covers systems with larger pages.
+///
+/// The writes are volatile so the compiler cannot drop them: storing
+/// zero into memory it knows is zeroed, or into an allocation that is
+/// never read, would otherwise be removed as dead.
+fn touch_pages(bytes: &mut [u8]) {
+    const STRIDE: usize = 4096;
+    let ptr = bytes.as_mut_ptr();
+    let mut i = 0;
+    while i < bytes.len() {
+        // SAFETY: `i < bytes.len()`, so `ptr.add(i)` is in bounds of the
+        // exclusively borrowed slice and valid for a one-byte write.
+        unsafe { std::ptr::write_volatile(ptr.add(i), 0) };
+        i += STRIDE;
     }
 }
 
@@ -125,6 +154,17 @@ mod tests {
             let _g = MemoryPressure::allocate(16 * 1024);
         }
         // No panic, no leak detectable here.
+    }
+
+    #[test]
+    fn touch_pages_keeps_contents_zero_and_handles_edges() {
+        let mut empty: [u8; 0] = [];
+        touch_pages(&mut empty);
+        let mut odd = vec![0u8; 4096 * 3 + 17];
+        touch_pages(&mut odd);
+        assert!(odd.iter().all(|&b| b == 0));
+        let g = MemoryPressure::allocate(0);
+        assert_eq!(g.size_bytes(), 0);
     }
 
     #[test]

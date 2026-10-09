@@ -116,10 +116,13 @@ impl Clock {
     /// Advance the clock by a non-negative `delta`.
     ///
     /// Equivalent to `skew_by(delta.as_nanos() as i64)` but rejects
-    /// negative durations at the type level.
+    /// negative durations at the type level. The offset saturates at
+    /// `i64::MAX` nanoseconds (about 292 years) instead of wrapping.
     pub fn advance(&self, delta: Duration) {
-        self.offset_ns
-            .fetch_add(delta.as_nanos() as i64, Ordering::Relaxed);
+        // `as i64` would wrap a delta above i64::MAX ns to a negative
+        // value and move the clock backwards.
+        let delta_ns = i64::try_from(delta.as_nanos()).unwrap_or(i64::MAX);
+        self.skew_by(delta_ns);
     }
 
     /// Skew the clock by `delta_ns`, which may be negative.
@@ -128,8 +131,25 @@ impl Clock {
     /// VM pause/resume backward jump). Tests can validate that retry
     /// loops with timeout-based escape don't get stuck on negative
     /// elapsed values.
+    ///
+    /// The offset saturates at `i64::MIN` / `i64::MAX` nanoseconds
+    /// instead of wrapping around.
     pub fn skew_by(&self, delta_ns: i64) {
-        self.offset_ns.fetch_add(delta_ns, Ordering::Relaxed);
+        // `fetch_add` wraps on overflow, which would flip a far-future
+        // clock into the far past. A CAS loop lets the add saturate.
+        let mut cur = self.offset_ns.load(Ordering::Relaxed);
+        loop {
+            let next = cur.saturating_add(delta_ns);
+            match self.offset_ns.compare_exchange_weak(
+                cur,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(actual) => cur = actual,
+            }
+        }
     }
 
     /// Reset the clock to anchor (offset zero).
@@ -203,6 +223,54 @@ mod tests {
         let c = Clock::new();
         let d = c.clone();
         assert_eq!(c.anchor(), d.anchor());
+    }
+
+    #[test]
+    fn huge_advance_saturates_instead_of_going_backwards() {
+        // Duration::MAX.as_nanos() as i64 truncated to -1, so this used
+        // to move the clock backwards by 1ns.
+        let c = Clock::new();
+        c.advance(Duration::MAX);
+        assert_eq!(c.now_signed_ns(), i64::MAX);
+        // Further advances stay pinned at the max instead of wrapping.
+        c.advance(Duration::from_secs(1));
+        assert_eq!(c.now_signed_ns(), i64::MAX);
+        assert_eq!(
+            c.now().since_anchor(),
+            Duration::from_nanos(i64::MAX as u64)
+        );
+    }
+
+    #[test]
+    fn skew_saturates_at_both_ends() {
+        let c = Clock::new();
+        c.skew_by(i64::MAX);
+        c.skew_by(i64::MAX);
+        assert_eq!(c.now_signed_ns(), i64::MAX);
+        c.reset();
+        c.skew_by(i64::MIN);
+        c.skew_by(-1);
+        assert_eq!(c.now_signed_ns(), i64::MIN);
+        assert_eq!(c.now().since_anchor(), Duration::ZERO);
+    }
+
+    #[test]
+    fn concurrent_advances_are_not_lost() {
+        let c = Clock::new();
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let c = c.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..1_000 {
+                        c.advance(Duration::from_nanos(1));
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        assert_eq!(c.now_signed_ns(), 8_000);
     }
 
     #[test]

@@ -79,14 +79,13 @@ impl<W: Write> Write for CrashWriter<W> {
                 "crash point reached",
             ));
         }
+        if buf.is_empty() {
+            // An empty write before the crash point writes nothing and
+            // is not a crash; `Write` expects `Ok(0)` here.
+            return Ok(0);
+        }
         let remaining = self.after - self.written;
         let to_write = remaining.min(buf.len());
-        if to_write == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "crash point reached",
-            ));
-        }
         let written = self.inner.write(&buf[..to_write])?;
         self.written += written;
         // If the caller asked for more than we let through, we report
@@ -137,6 +136,30 @@ mod tests {
         let mut w = CrashPoint::after_byte(5).wrap(sink);
         w.write_all(b"ab").unwrap();
         assert_eq!(w.bytes_written(), 2);
+    }
+
+    #[test]
+    fn empty_write_before_crash_point_is_ok() {
+        // An empty write used to fail with "crash point reached" even
+        // though no byte budget had been used.
+        let mut w = CrashPoint::after_byte(4).wrap(Vec::new());
+        assert_eq!(w.write(b"").unwrap(), 0);
+        w.write_all(b"ab").unwrap();
+        assert_eq!(w.write(b"").unwrap(), 0);
+        assert_eq!(w.bytes_written(), 2);
+        w.write_all(b"cdef").unwrap_err();
+        assert_eq!(w.into_inner(), b"abcd");
+    }
+
+    #[test]
+    fn writes_after_crash_point_keep_failing() {
+        let mut w = CrashPoint::after_byte(2).wrap(Vec::new());
+        assert_eq!(w.write(b"abc").unwrap(), 2);
+        for _ in 0..3 {
+            let e = w.write(b"x").unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::WriteZero);
+        }
+        assert_eq!(w.write(b"").unwrap_err().kind(), io::ErrorKind::WriteZero);
     }
 
     #[test]
