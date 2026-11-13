@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-11-12
+
+### Fixed
+
+- `CrashWriter::flush` succeeded after the crash point, an outcome a
+  real crash cannot produce. It now fails with `WriteZero` once the
+  crash point is reached, like `write`.
+
+### Documentation
+
+- The README listed failure modes the crate does not inject (disk full,
+  altered bytes on read). It now says what each mode actually does.
+
+### Changed
+
+- Depends on `dev-report` 0.9.9 from crates.io instead of a sibling
+  checkout.
+
+[0.9.6]: https://github.com/jamesgober/dev-chaos/releases/tag/v0.9.6
+
 ## [0.9.5] - 2026-10-09
 
 Determinism and overflow fixes from a review pass, plus the MSRV

@@ -33,27 +33,31 @@
 Most code is tested only on the happy path. Real systems fail through:
 
 - Partial writes
-- Disk full mid-flush
-- Connection resets
-- Corrupted reads
+- Connection resets and timeouts
+- Reads that fail a checksum or decode step
 - Permission denied
-- Process crashes
+- A process that stops writing at a given byte
 
 `dev-chaos` injects these failures on purpose so you can verify that
-your recovery logic works.
+your recovery logic works. They are injected as I/O errors and
+truncated writes: `FailureMode::Corruption` returns an
+`ErrorKind::InvalidData` error and does not change the bytes passed
+through, `CrashPoint` stops a writer after a given byte (writes and
+flushes past that point fail), and there is no dedicated disk-full
+mode.
 
 ## Quick start
 
 ```toml
 [dependencies]
-dev-chaos = "0.9.5"
+dev-chaos = "0.9.6"
 ```
 
 Opt-in features:
 
 ```toml
 [dependencies]
-dev-chaos = { version = "0.9.5", features = ["async-io"] }
+dev-chaos = { version = "0.9.6", features = ["async-io"] }
 ```
 
 ```rust
