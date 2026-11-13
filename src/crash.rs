@@ -94,6 +94,14 @@ impl<W: Write> Write for CrashWriter<W> {
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        // A process that crashed cannot flush. Succeeding here would show
+        // recovery code an outcome a real crash never produces.
+        if self.written >= self.after {
+            return Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "crash point reached",
+            ));
+        }
         self.inner.flush()
     }
 }
@@ -101,6 +109,16 @@ impl<W: Write> Write for CrashWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flush_fails_once_the_crash_point_is_reached() {
+        let mut w = CrashPoint::after_byte(3).wrap(Vec::<u8>::new());
+        w.write_all(b"ab").unwrap();
+        w.flush().unwrap();
+        let _ = w.write_all(b"cd");
+        let err = w.flush().unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+    }
 
     #[test]
     fn crash_after_byte_passes_through_then_truncates() {
